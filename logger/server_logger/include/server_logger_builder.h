@@ -3,6 +3,10 @@
 
 #include <logger_builder.h>
 #include <unordered_map>
+#include <fstream>
+#include <sstream>
+#include <stdexcept>
+#include <nlohmann/json.hpp>
 #include "server_logger.h"
 
 class server_logger_builder final:
@@ -16,6 +20,9 @@ class server_logger_builder final:
 public:
 
     server_logger_builder() : _destination("http://127.0.0.1:9200"){}
+
+private:
+    std::string _log_format = "%d %t [%s] %m";
 
 public:
 
