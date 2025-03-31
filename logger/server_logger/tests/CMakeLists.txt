@@ -1,4 +1,3 @@
-find_package(Crow REQUIRED)
 add_executable(
         mp_os_lggr_srvr_lggr_tests
         server_logger_tests.cpp)

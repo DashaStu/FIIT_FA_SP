@@ -9,6 +9,8 @@ message([[VCPKG toolchain setup example. It is needed for some libraries. Highly
         set(VCPKG_TARGET_TRIPLET x64-windows)
         set(CMAKE_TOOLCHAIN_FILE C:/Programming/vcpkg/scripts/buildsystems/vcpkg.cmake)]])
 
+find_package(Crow CONFIG REQUIRED)
+
 include(FetchContent)
 FetchContent_Declare(
         googletest
