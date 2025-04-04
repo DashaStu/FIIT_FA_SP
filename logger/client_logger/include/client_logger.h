@@ -10,7 +10,7 @@
 class client_logger_builder;
 
 class client_logger final:
-    public logger
+        public logger
 {
 private:
     //region refcounted_stream
@@ -64,9 +64,9 @@ private:
     friend client_logger_builder;
 public:
 
-    client_logger(client_logger const &other);
+    client_logger(client_logger const &other) = delete;
 
-    client_logger &operator=(client_logger const &other);
+    client_logger &operator=(client_logger const &other) = delete;
 
     client_logger(client_logger &&other) noexcept;
 
@@ -77,8 +77,8 @@ public:
 public:
 
     [[nodiscard]] logger& log(
-        const std::string &message,
-        logger::severity severity) & override;
+            const std::string &message,
+            logger::severity severity) & override;
 
 };
 

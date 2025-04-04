@@ -1,0 +1,15 @@
+{
+  "log": {
+    "format": "[%d %t][%s] %m",
+    "streams": {
+      "trace": {
+        "files": ["a.txt", "b.txt"],
+        "console": true
+      },
+      "debug": {
+        "files": ["a.txt", "../logger/a.txt"],
+        "console": false
+      }
+    }
+  }
+}

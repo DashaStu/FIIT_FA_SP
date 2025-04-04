@@ -6,6 +6,7 @@
 
 int main(int argc, char *argv[])
 {
+
     testing::InitGoogleTest(&argc, argv);
 
     client_logger_builder builder;
@@ -29,4 +30,5 @@ int main(int argc, char *argv[])
     logger2->trace("From second logger");
 
     return RUN_ALL_TESTS();
+
 }
