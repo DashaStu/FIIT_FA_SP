@@ -3,32 +3,38 @@
 
 #include <logger.h>
 #include <unordered_map>
-#include <string>
+#include <httplib.h>
 
 class server_logger_builder;
 class server_logger final : public logger
 {
-private:
-    std::string _destination;
+    httplib::Client _client;
     std::unordered_map<logger::severity, std::pair<std::string, bool>> _streams;
+    std::string _format;
 
+public:
+    enum class flag { DATE, TIME, SEVERITY, MESSAGE, NO_FLAG };
+
+protected:
     server_logger(const std::string& dest,
-                  const std::unordered_map<logger::severity, std::pair<std::string, bool>>& streams);
+                  const std::unordered_map<logger::severity, std::pair<std::string, bool>>& streams,
+                  const std::string& format);
 
     friend server_logger_builder;
 
+public:
     static int inner_getpid();
 
-public:
-    server_logger(const server_logger&) = delete;
-    server_logger& operator=(const server_logger&) = delete;
+    std::string make_format(const std::string& message, severity sev) const;
+    flag char_to_flag(char c) const noexcept;
 
+    server_logger(server_logger const& other) = delete;
+    server_logger& operator=(server_logger const& other) = delete;
     server_logger(server_logger&& other) noexcept;
     server_logger& operator=(server_logger&& other) noexcept;
-
-    ~server_logger() noexcept final;
+    ~server_logger() noexcept override;
 
     [[nodiscard]] logger& log(const std::string& message, logger::severity severity) & override;
 };
 
-#endif // MATH_PRACTICE_AND_OPERATING_SYSTEMS_SERVER_LOGGER_H
+#endif //MATH_PRACTICE_AND_OPERATING_SYSTEMS_SERVER_LOGGER_H

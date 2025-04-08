@@ -1,120 +1,107 @@
+#include <not_implemented.h>
+#include <httplib.h>
 #include "../include/server_logger.h"
-#include <sys/stat.h>
-#include <fstream>
-#include <chrono>
-#include <cstring>  // Для работы с strncpy
 
 #ifdef _WIN32
-#include <windows.h>
 #include <process.h>
 #else
-#include <sys/socket.h>
-#include <sys/un.h>
 #include <unistd.h>
 #endif
 
-server_logger::server_logger(
-        const std::string& dest,
-        const std::unordered_map<logger::severity, std::pair<std::string, bool>>& streams)
-        : _destination(dest), _streams(streams)
+server_logger::~server_logger() noexcept
 {
-#ifndef _WIN32
-    struct stat buffer;
-    if (stat(dest.c_str(), &buffer) != 0) {
-        throw std::runtime_error("Server socket not available");
-    }
-#endif
+    std::string pid = std::to_string(inner_getpid());
+    auto res = _client.Get("/destroy?pid=" + pid);
 }
 
-server_logger::~server_logger() noexcept = default;
-
-logger& server_logger::log(const std::string& message, logger::severity severity) &
+logger &server_logger::log(
+        const std::string &text,
+        logger::severity severity) &
 {
-    auto it = _streams.find(severity);
-    if (it == _streams.end() || !it->second.second) {
-        return *this;
+    std::string pid = std::to_string(inner_getpid());
+
+    // Сначала применяем make_format
+    std::string formatted_message = make_format(text, severity);
+
+    // Затем кодируем для URL только formatted_message
+    std::string encoded_message;
+    for (char c : formatted_message) {
+        if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~' || c == ' ') {
+            encoded_message += c;
+        } else {
+            char buf[4];
+            snprintf(buf, sizeof(buf), "%%%02X", static_cast<unsigned char>(c));
+            encoded_message += buf;
+        }
     }
 
-    std::ostringstream log_stream;
-    log_stream << "[" << current_datetime_to_string() << "] "
-               << "[" << severity_to_string(severity) << "] "
-               << "[PID:" << inner_getpid() << "] "
-               << message << "\n";
-
-    const std::string log_message = log_stream.str();
-
-#ifdef _WIN32
-    HANDLE pipe = CreateFileA(
-            _destination.c_str(),
-            GENERIC_WRITE,
-            0,
-            nullptr,
-            OPEN_EXISTING,
-            0,
-            nullptr);
-
-    if (pipe == INVALID_HANDLE_VALUE) {
-        throw std::runtime_error("Failed to connect to named pipe");
-    }
-
-    DWORD bytes_written;
-    BOOL write_result = WriteFile(
-            pipe,
-            log_message.c_str(),
-            static_cast<DWORD>(log_message.size()),
-            &bytes_written,
-            nullptr);
-
-    if (!write_result) {
-        CloseHandle(pipe);
-        throw std::runtime_error("Failed to write to named pipe");
-    }
-
-    CloseHandle(pipe);
-#else
-    int sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (sockfd < 0) {
-        throw std::runtime_error("Socket creation failed");
-    }
-
-    struct sockaddr_un server_addr{};
-    server_addr.sun_family = AF_UNIX;
-    // Используем безопасное копирование пути
-    strncpy(server_addr.sun_path, _destination.c_str(), sizeof(server_addr.sun_path) - 1);
-
-    // Пробуем подключиться к серверу
-    if (connect(sockfd, reinterpret_cast<sockaddr*>(&server_addr), sizeof(server_addr)) < 0) {
-        close(sockfd);
-        throw std::runtime_error("Connection to server failed");
-    }
-
-    // Отправляем лог-сообщение
-    ssize_t bytes_written = write(sockfd, log_message.c_str(), log_message.size());
-    if (bytes_written < 0) {
-        close(sockfd);
-        throw std::runtime_error("Failed to write to socket");
-    }
-
-    // Закрываем сокет
-    close(sockfd);
-#endif
+    // Формируем URL с закодированным сообщением
+    std::string url = "/log?pid=" + pid +
+                      "&sev=" + severity_to_string(severity) +
+                      "&message=" + encoded_message;
+    auto res = _client.Get(url);
 
     return *this;
 }
 
-server_logger::server_logger(server_logger&& other) noexcept
-        : _destination(std::move(other._destination)),
-          _streams(std::move(other._streams))
+server_logger::flag server_logger::char_to_flag(char c) const noexcept
 {
+    switch (c)
+    {
+        case 'd': return flag::DATE;
+        case 't': return flag::TIME;
+        case 's': return flag::SEVERITY;
+        case 'm': return flag::MESSAGE;
+        default: return flag::NO_FLAG;
+    }
 }
 
-server_logger& server_logger::operator=(server_logger&& other) noexcept
+std::string server_logger::make_format(const std::string &message, severity sev) const
 {
-    if (this != &other) {
-        _destination = std::move(other._destination);
-        _streams = std::move(other._streams);
+    std::stringstream formatted_message;
+
+    for (size_t i = 0; i < _format.length(); ++i)
+    {
+        if (_format[i] == '%' && i + 1 < _format.length())
+        {
+            switch (char_to_flag(_format[i + 1]))
+            {
+                case flag::DATE:
+                    formatted_message << current_date_to_string();
+                    break;
+                case flag::TIME:
+                    formatted_message << current_time_to_string();
+                    break;
+                case flag::SEVERITY:
+                    formatted_message << severity_to_string(sev);
+                    break;
+                case flag::MESSAGE:
+                    formatted_message << message;
+                    break;
+                default:
+                    formatted_message << '%' << _format[i + 1];
+            }
+            ++i;
+        }
+        else
+        {
+            formatted_message << _format[i];
+        }
     }
-    return *this;
+    return formatted_message.str();
+}
+
+server_logger::server_logger(const std::string &dest,
+                             const std::unordered_map<logger::severity, std::pair<std::string, bool> > &
+                             streams, const std::string &format) : _client(dest), _streams(streams), _format(format)
+{
+    std::string pid = std::to_string(inner_getpid());
+    for (const auto &[sev, stream_info]: streams)
+    {
+        std::string url = "/init?pid=" + pid + "&sev=" + severity_to_string(sev) + "&path="
+                          + stream_info.first + "&console=" + std::to_string(+stream_info.second);
+        auto res = _client.Get(url);
+    }
 }
 
 int server_logger::inner_getpid()
@@ -122,6 +109,19 @@ int server_logger::inner_getpid()
 #ifdef _WIN32
     return ::_getpid();
 #else
-    return ::getpid();
+    return getpid();
 #endif
+}
+
+server_logger::server_logger(server_logger &&other) noexcept : _client(std::move(other._client)),
+                                                               _format(std::move(other._format)) {}
+
+server_logger &server_logger::operator=(server_logger &&other) noexcept
+{
+    if (&other != this)
+    {
+        _client = std::move(other._client);
+        _format = std::move(other._format);
+    }
+    return *this;
 }

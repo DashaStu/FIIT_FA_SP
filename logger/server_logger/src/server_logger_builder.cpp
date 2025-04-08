@@ -1,18 +1,35 @@
 #include <not_implemented.h>
 #include "../include/server_logger_builder.h"
+#include <fstream>
+
+using namespace nlohmann;
 
 logger_builder& server_logger_builder::add_file_stream(
         std::string const &stream_file_path,
         logger::severity severity) &
 {
-    _output_streams[severity] = {stream_file_path, true};
+    if (_output_streams.contains(severity))
+    {
+        _output_streams[severity].first = stream_file_path;
+    }
+    else
+    {
+        _output_streams[severity] = std::make_pair(stream_file_path, false);
+    }
     return *this;
 }
 
 logger_builder& server_logger_builder::add_console_stream(
         logger::severity severity) &
 {
-    _output_streams[severity] = {"", true};  // Пустая строка означает консоль
+    if (_output_streams.contains(severity))
+    {
+        _output_streams[severity].second = true;
+    }
+    else
+    {
+        _output_streams[severity] = std::make_pair("", true);
+    }
     return *this;
 }
 
@@ -20,68 +37,68 @@ logger_builder& server_logger_builder::transform_with_configuration(
         std::string const &configuration_file_path,
         std::string const &configuration_path) &
 {
-    std::ifstream config_file(configuration_file_path);
-    if (!config_file.is_open()) {
-        throw std::runtime_error("Cannot open config file: " + configuration_file_path);
-    }
+    json js;
 
-    // Читаем файл как строку
-    std::string json_str((std::istreambuf_iterator<char>(config_file)), std::istreambuf_iterator<char>());
-    if (json_str.empty()) {
-        throw std::runtime_error("Config file is empty!");
-    }
+    std::ifstream stream(configuration_file_path);
+    if (stream.is_open())
+    {
+        json::parser_callback_t callback = [&configuration_path](int depth,
+                                                                 json::parse_event_t event, json &parsed) {
+            if (event == json::parse_event_t::key && depth == 1 && parsed != json(configuration_path))
+            {
+                return false;
+            }
+            return true;
+        };
 
-    // Парсим JSON
-    nlohmann::json root;
-    root = nlohmann::json::parse(json_str);
-    /*try {
-        root = nlohmann::json::parse(json_str);
-    } catch (const std::exception &e) {
-        throw std::runtime_error("JSON parsing error: " + std::string(e.what()));
-    }*/
+        js = json::parse(stream, callback);
+        stream.close();
+        if (js.contains(configuration_path) == false)
+        {
+            return *this;
+        }
 
-    // Проверяем, содержит ли JSON нужный путь
-    if (!root.contains(configuration_path)) {
-        throw std::runtime_error("Configuration path not found in JSON: " + configuration_path);
-    }
-
-    nlohmann::json config = root[configuration_path];
-    if (!config.is_object()) {
-        throw std::runtime_error("Configuration path must be a JSON object!");
-    }
-
-    // Настраиваем вывод
-    if (config.contains("destination")) {
-        _destination = config["destination"].get<std::string>();
-    }
-
-    if (config.contains("streams")) {
-        for (const auto& stream : config["streams"]) {
-            std::string type = stream["type"].get<std::string>();
-            logger::severity severity = string_to_severity(stream["severity"].get<std::string>());
-
-            if (type == "file") {
-                add_file_stream(stream["path"].get<std::string>(), severity);
-            } else if (type == "console") {
-                add_console_stream(severity);
+        js = js[configuration_path];
+        if (js.contains("format"))
+        {
+            set_format(js["format"]);
+        }
+        if (js.contains("console_stream"))
+        {
+            for (auto &[key, value]: js["console_stream"].items())
+            {
+                try
+                {
+                    add_console_stream(string_to_severity(value.get<std::string>()));
+                }
+                catch (std::out_of_range const &e) {}
+            }
+        }
+        if (js.find("file_streams") != js.end())
+        {
+            for (auto &[path, sev]: js["file_streams"].items())
+            {
+                try
+                {
+                    add_file_stream(path, string_to_severity(sev.get<std::string>()));
+                }
+                catch (std::out_of_range const &e) {}
             }
         }
     }
-
     return *this;
 }
 
-
 logger_builder& server_logger_builder::clear() &
 {
-    _output_streams.clear();
     _destination = "http://127.0.0.1:9200";
+    _output_streams.clear();
     return *this;
 }
 
 logger *server_logger_builder::build() const
 {
-    return new server_logger(_destination, _output_streams);
+    return new server_logger(_destination, _output_streams, _format);
 }
 
 logger_builder& server_logger_builder::set_destination(const std::string& dest) &
@@ -90,8 +107,8 @@ logger_builder& server_logger_builder::set_destination(const std::string& dest) 
     return *this;
 }
 
-logger_builder& server_logger_builder::set_format(const std::string& format) &
+logger_builder& server_logger_builder::set_format(const std::string &format) &
 {
-    _log_format = format;
+    _format = format;
     return *this;
 }

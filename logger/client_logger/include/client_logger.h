@@ -64,9 +64,9 @@ private:
     friend client_logger_builder;
 public:
 
-    client_logger(client_logger const &other) = delete;
+    client_logger(client_logger const &other);
 
-    client_logger &operator=(client_logger const &other) = delete;
+    client_logger &operator=(client_logger const &other);
 
     client_logger(client_logger &&other) noexcept;
 
